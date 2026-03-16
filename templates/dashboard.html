@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MailMind AI{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid" id="statsGrid">
+  <div class="stat-card total">
+    <div class="stat-icon">📊</div>
+    <div class="stat-body">
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-label">Total Processed</div>
+    </div>
+  </div>
+  <div class="stat-card kept">
+    <div class="stat-icon">✅</div>
+    <div class="stat-body">
+      <div class="stat-value" id="stat-kept">—</div>
+      <div class="stat-label">Kept</div>
+    </div>
+  </div>
+  <div class="stat-card labeled">
+    <div class="stat-icon">🏷️</div>
+    <div class="stat-body">
+      <div class="stat-value" id="stat-labeled">—</div>
+      <div class="stat-label">Labeled</div>
+    </div>
+  </div>
+  <div class="stat-card deleted">
+    <div class="stat-icon">🗑️</div>
+    <div class="stat-body">
+      <div class="stat-value" id="stat-deleted">—</div>
+      <div class="stat-label">Deleted</div>
+    </div>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="glass-card">
+    <div class="section-header">
+      <span class="section-title">Recent Activity</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="loadActivity()">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M23 4V10H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 20V14H7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="activity-table-wrap">
+      <table class="activity-table">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>From</th>
+            <th>Action</th>
+            <th>Label</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="activityBody">
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <div class="empty-icon">📬</div>
+                <div class="empty-title">No emails processed yet</div>
+                <div class="empty-desc">Emails will appear here once processed.</div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    document.getElementById('stat-total').textContent = data.total ?? 0;
+    document.getElementById('stat-kept').textContent = data.kept ?? 0;
+    document.getElementById('stat-deleted').textContent = data.deleted ?? 0;
+    document.getElementById('stat-labeled').textContent = data.labeled ?? 0;
+  } catch(e) { console.error('Stats error:', e); }
+}
+
+async function loadActivity() {
+  try {
+    const res = await fetch('/api/activity?limit=50');
+    const data = await res.json();
+    const tbody = document.getElementById('activityBody');
+    if (!data.logs || data.logs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5">
+        <div class="empty-state">
+          <div class="empty-icon">📬</div>
+          <div class="empty-title">No emails processed yet</div>
+          <div class="empty-desc">Emails will appear here once processed.</div>
+        </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.logs.map(log => {
+      const action = log.action || 'keep';
+      const actionClass = action.startsWith('label:') ? 'labeled' : action;
+      const actionLabel = action.startsWith('label:') ? `🏷️ ${action.split(':')[1]}` : actionEmoji(action);
+      const time = log.analyzed_at ? new Date(log.analyzed_at).toLocaleString() : '—';
+      return `<tr>
+        <td class="subject-cell" title="${escHtml(log.subject || '')}">${escHtml(log.subject || '(No Subject)')}</td>
+        <td class="text-sm text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(log.sender || '')}">${escHtml(log.sender || '—')}</td>
+        <td><span class="action-badge ${actionClass}">${actionLabel}</span></td>
+        <td class="text-sm text-muted">${escHtml(log.label_applied || '—')}</td>
+        <td class="text-sm text-muted">${time}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('Activity error:', e); }
+}
+
+function actionEmoji(action) {
+  return {keep:'✅ Kept', delete:'🗑️ Deleted'}[action] || action;
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadStats();
+loadActivity();
+setInterval(() => { loadStats(); loadActivity(); }, 20000);
+</script>
+{% endblock %}

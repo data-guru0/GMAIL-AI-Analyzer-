@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Requirements — MailMind AI{% endblock %}
+{% block page_title %}Email Requirements{% endblock %}
+
+{% block content %}
+<div style="max-width: 860px;">
+  <div class="glass-card mb-6">
+    <div class="section-header">
+      <span class="section-title">Upload Requirements Document</span>
+    </div>
+    <p class="text-muted text-sm" style="margin-bottom:20px;">
+      Upload a PDF, DOCX, or TXT file describing what emails you want. The AI will extract categories, keywords, and rules automatically.
+    </p>
+
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt,.md" />
+      <div class="upload-icon">📄</div>
+      <div class="upload-title" id="uploadTitle">Drag & drop or click to upload</div>
+      <div class="upload-subtitle">Supported: PDF, DOCX, TXT — Max 16MB</div>
+    </div>
+
+    <div class="progress" id="uploadProgress">
+      <span class="spinner"></span>
+      <span id="progressText">Uploading and analyzing your document... This may take 10–30 seconds.</span>
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-primary" id="uploadBtn" onclick="uploadFile()" disabled>
+        <svg viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Analyze Document
+      </button>
+    </div>
+  </div>
+
+  <div id="reqDisplay" style="display:none;">
+    <div class="glass-card">
+      <div class="section-header">
+        <span class="section-title">✅ Parsed Requirements</span>
+        <span class="text-sm text-muted" id="reqFilename"></span>
+      </div>
+
+      <div class="req-section">
+        <div class="req-section-title">AI Summary</div>
+        <div class="summary-box" id="reqSummary"></div>
+      </div>
+
+      <div class="req-section" id="categoriesSection">
+        <div class="req-section-title">Categories & Labels</div>
+        <div class="category-grid" id="categoriesGrid"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="req-section" id="allowedSection">
+          <div class="req-section-title">✅ Allowed Senders</div>
+          <div class="kw-chips" id="allowedChips"></div>
+        </div>
+        <div class="req-section" id="blockedSection">
+          <div class="req-section-title">🚫 Blocked Senders</div>
+          <div class="kw-chips" id="blockedChips"></div>
+        </div>
+      </div>
+      <div class="req-section">
+        <div class="req-section-title">🔑 Global Keywords</div>
+        <div class="kw-chips" id="globalKwChips"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const fileInput = document.getElementById('fileInput');
+const uploadBtn = document.getElementById('uploadBtn');
+const uploadZone = document.getElementById('uploadZone');
+const uploadTitle = document.getElementById('uploadTitle');
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length > 0) {
+    uploadTitle.textContent = `Selected: ${fileInput.files[0].name}`;
+    uploadBtn.disabled = false;
+  }
+});
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    fileInput.files = e.dataTransfer.files;
+    uploadTitle.textContent = `Selected: ${file.name}`;
+    uploadBtn.disabled = false;
+  }
+});
+
+async function uploadFile() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  uploadBtn.disabled = true;
+  uploadBtn.innerHTML = '<span class="spinner"></span> Analyzing...';
+  document.getElementById('uploadProgress').classList.add('show');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/requirements/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('✅ Requirements analyzed successfully!', 'success');
+      renderRequirements(data.requirements);
+    } else {
+      showToast('❌ ' + (data.error || 'Upload failed'), 'error');
+    }
+  } catch(e) {
+    showToast('❌ Upload failed: ' + e.message, 'error');
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Analyze Document';
+    document.getElementById('uploadProgress').classList.remove('show');
+  }
+}
+
+function renderRequirements(req) {
+  const parsed = req.parsed;
+  document.getElementById('reqFilename').textContent = req.filename || '';
+  document.getElementById('reqSummary').textContent = parsed.summary || 'No summary available.';
+
+  const grid = document.getElementById('categoriesGrid');
+  const cats = parsed.categories || [];
+  if (cats.length > 0) {
+    grid.innerHTML = cats.map(cat => `
+      <div class="category-card">
+        <div class="category-name">🏷️ ${escHtml(cat.name)}</div>
+        <div class="category-desc">${escHtml(cat.description || '')}</div>
+        <div class="kw-chips">${(cat.keywords||[]).map(k=>`<span class="kw-chip">${escHtml(k)}</span>`).join('')}</div>
+      </div>
+    `).join('');
+    document.getElementById('categoriesSection').style.display = '';
+  } else {
+    document.getElementById('categoriesSection').style.display = 'none';
+  }
+
+  renderChips('allowedChips', parsed.allowed_senders || [], '✅ ');
+  renderChips('blockedChips', parsed.blocked_senders || [], '🚫 ');
+  renderChips('globalKwChips', parsed.global_keywords || []);
+
+  document.getElementById('reqDisplay').style.display = '';
+  document.getElementById('reqDisplay').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function renderChips(id, items, prefix='') {
+  const el = document.getElementById(id);
+  if (items.length > 0) {
+    el.innerHTML = items.map(i=>`<span class="kw-chip">${prefix}${escHtml(i)}</span>`).join('');
+  } else {
+    el.innerHTML = '<span class="text-muted text-sm">None specified</span>';
+  }
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, type='info') {
+  let container = document.querySelector('.toast-container');
+  if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); }
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+async function loadExisting() {
+  try {
+    const res = await fetch('/api/requirements');
+    const data = await res.json();
+    if (data.requirements && data.requirements.parsed_requirements) {
+      renderRequirements({
+        filename: data.requirements.filename,
+        parsed: data.requirements.parsed_requirements,
+        labels: data.requirements.labels,
+      });
+    }
+  } catch(e) {}
+}
+loadExisting();
+</script>
+{% endblock %}
